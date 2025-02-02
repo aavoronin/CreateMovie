@@ -1,0 +1,438 @@
+import json
+import os
+import cv2
+import moviepy.editor as mp #pip install moviepy==1.0.3
+from moviepy.editor import *
+import numpy as np
+from PIL import Image
+from moviepy.video.io.VideoFileClip import VideoFileClip
+from pymediainfo import MediaInfo
+
+from PIL import Image
+from datetime import datetime, date
+import os
+
+target_width = 1280
+target_height = 720
+target_params = {'target_width': target_width, 'target_height': target_height, 'target_fps': 25, 'image_duration_sec': 3.5}
+
+def get_file_type(filename):
+    _, ext = os.path.splitext(filename.lower())
+    if ext in ['.jpg', '.jpeg', '.png', '.mp4']:
+        return ext[1:]
+    return 'other'
+
+
+
+def get_image_dimensions(image_path):
+    try:
+        # Open the image
+        with Image.open(image_path) as img:
+            # Get image dimensions
+            width, height = img.size
+
+            # Get image creation date
+            creation_date = img._getexif().get(0x9003) if hasattr(img, '_getexif') \
+                else os.path.getctime(image_path)
+
+            # Return all collected information
+            return width, height, creation_date
+
+    except Exception as e:
+        print(f"Error processing image {image_path}: {str(e)}")
+        return None, None, None
+
+
+# Example usage:
+# dimensions = get_image_dimensions("path/to/your/image.jpg")
+# if dimensions:
+#     print(dimensions)
+
+
+def get_video_info(video_path):
+    try:
+
+        video = mp.VideoFileClip(video_path)
+
+        width = int(video.w)
+        height = int(video.h)
+        duration = video.duration
+        fps = video.fps
+        rotation = video.rotation
+
+        # Estimate number of frames (this is an approximation)
+        num_frames = int(duration * fps)
+
+        # Get video creation date
+        try:
+            media_info = MediaInfo.parse(video_path)
+            for track in media_info.tracks:
+                if hasattr(track, 'encoded_date'):
+                    if 'UTC' in track.encoded_date:
+                        creation_date = datetime.strptime(track.encoded_date, "%Y-%m-%d %H:%M:%S %Z")
+                    else:
+                        creation_date = datetime.strptime(track.encoded_date, "%Y-%m-%d %H:%M:%S")
+                    break
+        except Exception as e:
+            creation_date = os.path.getctime(video_path)
+
+        # Estimate bitrate (this is a rough estimate and may vary)
+        bitrate = int(width * height * fps * 8 * 1024 / (1024 * 1024))  # in Mbps
+        video.close()
+
+        # Open the video file
+
+        return {
+            'width': width,
+            'height': height,
+            'duration': duration,
+            'fps': fps,
+            'num_frames': num_frames,
+            'bitrate': bitrate,
+            'is_image': False,
+            'creation_date': creation_date,
+            'rotation': rotation
+        }
+    except Exception as e:
+        print(e)
+
+
+def get_file_attrs(item, item_path):
+    file_info = {
+        'name': item,
+        'path': item_path,
+        'size': os.path.getsize(item_path),
+        'type': get_file_type(item)
+    }
+
+    if file_info['type'] in ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp']:
+        width, height, dt = get_image_dimensions(item_path)
+        if width is not None:
+            file_info['width'] = width
+            file_info['height'] = height
+            file_info['creation_date'] = dt
+            file_info['is_image'] = True
+            file_info['rotation'] = 0
+        else:
+            file_info['width'] = file_info['height'] = None
+    elif file_info['type'] in ['mp4', 'mpeg4', 'avi', 'mov', 'wmv', 'flv', 'ogv', 'mkv', 'ts', 'm4v', 'divx', 'vob', 'asf', 'f4v', 'vp9', 'vp8', 'hevc', 'avchd']:
+        video_info = get_video_info(item_path)
+        file_info.update(video_info)
+
+    return file_info
+
+
+def scan_directory(root_path):
+    file_tree = {}
+
+    def walk_and_collect(current_path, file_tree):
+        for item in os.listdir(current_path):
+            if item == "bad":
+                continue
+            item_path = os.path.join(current_path, item)
+            #print(item_path)
+
+            if os.path.isdir(item_path):
+                if "dirs" not in file_tree:
+                    file_tree['dirs'] = {}
+                file_tree['dirs'][item] = {}
+                walk_and_collect(item_path, file_tree['dirs'][item])
+            else:
+                if "files" not in file_tree:
+                    file_tree['files'] = {}
+                fi = file_tree['files'][item] = get_file_attrs(item, item_path)
+                if 'width' in fi and 'height' in fi:
+                    print(f"{item_path}: {fi['width']}x{fi['height']}")
+                else:
+                    print(f"{item_path}: ERROR")
+
+    walk_and_collect(root_path, file_tree)
+    return file_tree
+
+
+
+def parse_date(dt):
+    """
+    Parse input into a datetime object.
+
+    Args:
+        dt (date, datetime, str): Input date/time value
+
+    Returns:
+        datetime: Parsed datetime object if successful
+        None: If parsing fails
+    """
+    if isinstance(dt, (datetime, date)):
+        # If already a datetime or date object, return as-is
+        return dt
+
+    try:
+        # Try to parse as ISO format string
+        return datetime.fromisoformat(dt)
+    except ValueError:
+        pass
+
+    for format in ["%Y-%m-%d %H:%M:%S", "%Y:%m:%d %H:%M:%S"]:
+        try:
+            # Try to parse as standard Python date string format
+            return datetime.strptime(dt, format)
+        except ValueError:
+            pass
+
+    try:
+        # Try to parse as YYYYMMDD format
+        return datetime.strptime(dt, "%Y%m%d")
+    except ValueError:
+        pass
+
+    # If all parsing attempts fail, return None
+    return None
+
+
+def make_into_sequence(file_tree, target_params):
+    sequence = []
+    for name in file_tree['files']:
+        fi = file_tree['files'][name]
+        if 'is_image' not in fi:
+            continue
+        p = {'fi': fi}
+        p['name'] = name
+        p['path'] = fi['path']
+        p['target_width'] = target_params['target_width']
+        p['target_height'] = target_params['target_height']
+        p['width'] = fi['width']
+        p['height'] = fi['height']
+        p['is_image'] = fi['is_image']
+        p['rotation'] = fi['rotation']
+        p['repeat'] = 1 if not fi['is_image'] else int(target_params['image_duration_sec'] * target_params['target_fps'] + 0.5)
+        if 'creation_date' in fi:
+            p['creation_date'] = parse_date(fi['creation_date']) 
+        elif 'date' in fi:
+            p['creation_date'] = parse_date(p['date'])
+        del p['fi']
+        sequence.append(p)
+    sequence = sorted(sequence, key=lambda x: x['creation_date'])
+    print(sequence)
+    return sequence
+
+
+
+def resize_to_fit(w, h, target_width, target_height):
+    # Calculate initial aspect ratio
+    initial_aspect_ratio = w / h
+    # First pass: Fit by width
+    if w > target_width:
+        new_width = target_width
+        new_height = int(new_width / initial_aspect_ratio)
+    elif w < target_width:
+        new_width = target_width
+        new_height = int(new_width / initial_aspect_ratio)
+    else:
+        new_width = w
+        new_height = h
+    if target_height < new_height:
+        new_height2 = target_height
+        new_width2 = int((new_width * target_height) / new_height)
+        new_height = new_height2
+        new_width = new_width2
+    return new_height, new_width
+
+def create_video(output_file_name, target_params, sequence):
+    # Extract target parameters
+    target_width = target_params['target_width']
+    target_height = target_params['target_height']
+    target_fps = target_params['target_fps']
+    image_duration_sec = target_params['image_duration_sec']
+
+    clips = []
+    # Create a list to hold the resized images
+    #resized_images = []
+
+    # Process each image in the sequence
+    for item in sequence:
+        image_path = item['path']
+        if item['is_image']:
+            add_image_to_video(clips, image_path, item, target_fps, target_height, target_width)
+        else:
+            add_video_to_video(clips, image_path, item, target_fps, target_height, target_width)
+
+    # Concatenate all clips into one video clip
+    final_clip = mp.concatenate_videoclips(clips, method="compose")
+
+    # Write the video
+    final_clip.write_videofile(output_file_name, fps=target_fps, codec='libx264')
+
+    print(f"Video '{output_file_name}' has been created successfully.")
+
+
+def resize_rgb_image(img, new_width, new_height, rotation=0):
+    #img = rotate(img, (rotation + 180) % 360)
+    img = cv2.resize(img, (new_width, new_height))
+    #img = rotate(img, rotation)
+    return img
+
+
+def rotate(img, rotation):
+    if rotation == 90:
+        img = np.rot90(img, 1)
+    elif rotation == 180:
+        img = np.rot90(img, 2)
+    elif rotation == 270:
+        img = np.rot90(img, 3)
+    return img
+
+
+def process_video_image0(image):
+    global target_width
+    global target_height
+    h = image.shape[0]
+    w = image.shape[1]
+    new_height, new_width = resize_to_fit(w, h, target_width, target_height)
+    resized_img = resize_rgb_image(image, new_width, new_height, 0)
+    image2 = expand_image(resized_img, target_height, target_width)
+    return image2
+
+def process_video_image90(image):
+    global target_width
+    global target_height
+    h = image.shape[0]
+    w = image.shape[1]
+    image = rotate(image, 270)
+    new_height, new_width = resize_to_fit(w, h, target_width, target_height)
+    resized_img = resize_rgb_image(image, new_width, new_height, 0)
+    image2 = expand_image(resized_img, target_height, target_width)
+    image2 = rotate(image2, 90)
+    return image2
+
+def process_video_image180(image):
+    global target_width
+    global target_height
+    h = image.shape[0]
+    w = image.shape[1]
+    image = rotate(image, 180)
+    new_height, new_width = resize_to_fit(w, h, target_width, target_height)
+    resized_img = resize_rgb_image(image, new_width, new_height, 0)
+    image2 = expand_image(resized_img, target_height, target_width)
+    image2 = rotate(image2, 180)
+    return image2
+
+def process_video_image270(image):
+    global target_width
+    global target_height
+    h = image.shape[0]
+    w = image.shape[1]
+    image = rotate(image, 90)
+    new_height, new_width = resize_to_fit(w, h, target_width, target_height)
+    resized_img = resize_rgb_image(image, new_width, new_height, 0)
+    image2 = expand_image(resized_img, target_height, target_width)
+    image2 = rotate(image2, 270)
+    return image2
+
+def add_video_to_video(clips, video_path, item, target_fps, target_height, target_width):
+
+    w = item['width']
+    h = item['height']
+    new_height, new_width = resize_to_fit(w, h, target_width, target_height)
+
+    # Load the existing video file
+    resized_clip = VideoFileClip(video_path)#.fx(vfx.resize, height=new_height)
+
+    # Apply custom function to each frame
+    if item['rotation'] == 0:
+        resized_clip = resized_clip.fl_image(process_video_image0)
+    elif item['rotation'] == 90:
+        resized_clip = resized_clip.fl_image(process_video_image90)
+    elif item['rotation'] == 180:
+        resized_clip = resized_clip.fl_image(process_video_image180)
+    elif item['rotation'] == 270:
+        resized_clip = resized_clip.fl_image(process_video_image270)
+
+    print(f"({w}, {h}) -- ({new_width}, {new_height}) -- ({target_width}, {target_height})")
+    #resized_clip = resized_clip.fx(vfx.resize, height=new_height)
+    #resized_clip = resized_clip.fx(vfx.resize, width=new_width)
+    #resized_clip = resized_clip.fx(vfx.resize, height=new_height)
+
+    # Create a new clip with the resized dimensions
+    #resized_clip = resized_clip.resize((new_height, new_width))
+
+    # Set the new frame rate
+    resized_clip = resized_clip.set_fps(target_fps)
+
+    # Adjust duration if needed
+    duration = int(resized_clip.duration)
+    resized_clip = resized_clip.subclip(0, duration)
+
+    clips.append(resized_clip)
+
+    print(video_path)
+    pass
+
+def add_image_to_video(clips, image_path, item, target_fps, target_height, target_width):
+    # Open the image
+    with Image.open(image_path) as img:
+        # Convert image to RGB mode
+        img = img.convert('RGB')
+        w = img.width
+        h = img.height
+
+        new_height, new_width = resize_to_fit(w, h, target_width, target_height)
+
+        print(f"resized ({w}, {h}) --> ({new_width}, {new_height})")
+        # Resize the image
+        resized_img = np.array(img.resize((new_width, new_height)).copy())
+
+        # Expand the resized image to target size with black margin
+        expanded_img = expand_image(resized_img, target_height, target_width)
+
+        # Repeat the image for the specified number of frames
+        #for _ in range(item['repeat']):
+        #    resized_images.append(expanded_img)
+
+        clips.append(mp.ImageSequenceClip([expanded_img for _ in range(item['repeat'])], fps=target_fps))
+
+
+def expand_image(img, target_height, target_width):
+    new_height = img.shape[0]
+    new_width = img.shape[1]
+    expanded_img = np.zeros((target_height, target_width, 3), dtype=np.uint8)
+    dh = (target_height - new_height) // 2
+    dw = (target_width - new_width) // 2
+    expanded_img[dh:new_height + dh, dw:new_width + dw] = img[:new_height, :new_width]
+    return expanded_img
+
+
+# Specify the folder to scan
+folder_to_scan = 'c:\\Photo\\Турция 2023\\'
+video_source_path = 'c:\\Photo\\Турция 2023\\'
+output_path = 'c:\\VideoMontage\\Турция2023\\'
+
+video_name = 'Олюдениз По Морю'
+video_name = 'Ксантос'
+#video_name = 'test'
+folder_to_scan = os.path.join(video_source_path, video_name)
+output_file_name = os.path.join(output_path, video_name + '.mp4')
+
+result = scan_directory(folder_to_scan)
+sequence = make_into_sequence(result, target_params)
+
+create_video(output_file_name, target_params, sequence)
+"""
+result = scan_directory(video_source_path)
+for dir in result['dirs']:
+    print(dir)
+    video_name = dir
+    folder_to_scan = os.path.join(video_source_path, video_name)
+    output_file_name = os.path.join(output_path, video_name + '.mp4')
+    result = scan_directory(folder_to_scan)
+    target_params = {'target_width': 1280, 'target_height': 720, 'target_fps': 25, 'image_duration_sec': 3.5}
+    sequence = make_into_sequence(result, target_params)
+    try:
+        create_video(output_file_name, target_params, sequence)
+    except Exception as e:
+        print(e)
+        continue
+
+#print(json.dumps(result, indent=2))
+#print(json.dumps(sequence, indent=2))
+
+"""
