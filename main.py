@@ -22,8 +22,6 @@ def get_file_type(filename):
         return ext[1:]
     return 'other'
 
-
-
 def get_image_dimensions(image_path):
     try:
         # Open the image
@@ -295,36 +293,25 @@ def process_video_image0(image):
 def process_video_image90(image):
     global target_width
     global target_height
-    h = image.shape[0]
-    w = image.shape[1]
     image = rotate(image, 270)
-    new_height, new_width = resize_to_fit(w, h, target_width, target_height)
-    resized_img = resize_rgb_image(image, new_width, new_height, 0)
-    image2 = expand_image(resized_img, target_height, target_width)
-    image2 = rotate(image2, 90)
-    return image2
-
-def process_video_image180(image):
-    global target_width
-    global target_height
     h = image.shape[0]
     w = image.shape[1]
-    image = rotate(image, 180)
     new_height, new_width = resize_to_fit(w, h, target_width, target_height)
-    resized_img = resize_rgb_image(image, new_width, new_height, 0)
-    image2 = expand_image(resized_img, target_height, target_width)
-    image2 = rotate(image2, 180)
+    resized_img = resize_rgb_image(image, new_height, new_width, 0)
+    image2 = expand_image(resized_img, target_width, target_height)
+    image2 = rotate(image2, 90)
     return image2
 
 def process_video_image270(image):
     global target_width
     global target_height
+    #return image
+    image = rotate(image, 90)
     h = image.shape[0]
     w = image.shape[1]
-    image = rotate(image, 90)
     new_height, new_width = resize_to_fit(w, h, target_width, target_height)
-    resized_img = resize_rgb_image(image, new_width, new_height, 0)
-    image2 = expand_image(resized_img, target_height, target_width)
+    resized_img = resize_rgb_image(image, new_height, new_width, 0)
+    image2 = expand_image(resized_img, target_width, target_height)
     image2 = rotate(image2, 270)
     return image2
 
@@ -337,23 +324,22 @@ def add_video_to_video(clips, video_path, item, target_fps, target_height, targe
     # Load the existing video file
     resized_clip = VideoFileClip(video_path)#.fx(vfx.resize, height=new_height)
 
+    # Check if video is longer than l seconds and trim if necessary
+    l = 20000000000
+    if resized_clip.duration > l:
+        resized_clip = resized_clip.subclip(0, l)
+
     # Apply custom function to each frame
     if item['rotation'] == 0:
         resized_clip = resized_clip.fl_image(process_video_image0)
     elif item['rotation'] == 90:
         resized_clip = resized_clip.fl_image(process_video_image90)
     elif item['rotation'] == 180:
-        resized_clip = resized_clip.fl_image(process_video_image180)
+        resized_clip = resized_clip.fl_image(process_video_image0) # 180 same as 0
     elif item['rotation'] == 270:
-        resized_clip = resized_clip.fl_image(process_video_image270)
+        resized_clip = resized_clip.fl_image(process_video_image90) # 270 same as 0
 
-    print(f"({w}, {h}) -- ({new_width}, {new_height}) -- ({target_width}, {target_height})")
-    #resized_clip = resized_clip.fx(vfx.resize, height=new_height)
-    #resized_clip = resized_clip.fx(vfx.resize, width=new_width)
-    #resized_clip = resized_clip.fx(vfx.resize, height=new_height)
-
-    # Create a new clip with the resized dimensions
-    #resized_clip = resized_clip.resize((new_height, new_width))
+    print(f"({w}, {h}) -- ({new_width}, {new_height}) -- ({target_width}, {target_height}) -- {item['rotation']}")
 
     # Set the new frame rate
     resized_clip = resized_clip.set_fps(target_fps)
@@ -407,7 +393,7 @@ video_source_path = 'c:\\Photo\\Турция 2023\\'
 output_path = 'c:\\VideoMontage\\Турция2023\\'
 
 video_name = 'Олюдениз По Морю'
-video_name = 'Ксантос'
+#video_name = 'Ксантос'
 #video_name = 'test'
 folder_to_scan = os.path.join(video_source_path, video_name)
 output_file_name = os.path.join(output_path, video_name + '.mp4')
@@ -416,6 +402,11 @@ result = scan_directory(folder_to_scan)
 sequence = make_into_sequence(result, target_params)
 
 create_video(output_file_name, target_params, sequence)
+
+
+vn = output_file_name.replace("/", "\\")
+os.system(f'"C:\\Program Files\\VideoLAN\\VLC\\vlc.exe" "{vn}"')
+
 """
 result = scan_directory(video_source_path)
 for dir in result['dirs']:
