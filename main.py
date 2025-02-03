@@ -7,14 +7,19 @@ import numpy as np
 from PIL import Image
 from moviepy.video.io.VideoFileClip import VideoFileClip
 from pymediainfo import MediaInfo
-
 from PIL import Image
 from datetime import datetime, date
 import os
+from pydub import AudioSegment
+from pydub.silence import split_on_silence
+import math
 
 target_width = 1280
 target_height = 720
-target_params = {'target_width': target_width, 'target_height': target_height, 'target_fps': 25, 'image_duration_sec': 3.5}
+#target_width = 2560
+#target_height = 1920
+
+target_params = {'target_width': target_width, 'target_height': target_height, 'target_fps': 25, 'image_duration_sec': 2.5}
 
 def get_file_type(filename):
     _, ext = os.path.splitext(filename.lower())
@@ -254,6 +259,24 @@ def create_video(output_file_name, target_params, sequence):
         else:
             add_video_to_video(clips, image_path, item, target_fps, target_height, target_width)
 
+    pos = 0
+    last_silent = True
+    start_silence = 0
+    silences = []
+    for clip in clips:
+        if isinstance(clip, VideoFileClip):
+            if last_silent and pos > start_silence:
+                silences.append((start_silence, pos))
+                last_silent = False
+            pos += clip.duration
+            start_silence = pos
+        else:
+            pos += clip.duration
+            last_silent = True
+
+    if last_silent and pos > start_silence:
+        silences.append((start_silence, pos))
+
     # Concatenate all clips into one video clip
     final_clip = mp.concatenate_videoclips(clips, method="compose")
 
@@ -261,7 +284,6 @@ def create_video(output_file_name, target_params, sequence):
     final_clip.write_videofile(output_file_name, fps=target_fps, codec='libx264')
 
     print(f"Video '{output_file_name}' has been created successfully.")
-
 
 def resize_rgb_image(img, new_width, new_height, rotation=0):
     #img = rotate(img, (rotation + 180) % 360)
@@ -387,22 +409,66 @@ def expand_image(img, target_height, target_width):
     return expanded_img
 
 
+
+
+def apply_sound(output_file_name):
+    """
+    Detects silent intervals longer than 2 seconds in a video file.
+
+    Args:
+        output_file_name (str): Path to the video file
+
+    Returns:
+        list: List of tuples containing (start_time, end_time) for each silent interval
+    """
+    try:
+        # Extract audio from video file
+        sound = AudioSegment.from_file(output_file_name)
+
+        # Split audio on silence
+        chunks = split_on_silence(
+            sound,
+            min_silence_len=2000,  # Minimum silence duration in milliseconds (2 seconds)
+            silence_thresh=-40,  # Silence threshold in dBFS (adjust based on your needs)
+            keep_silence=True  # Keep the silent portions
+        )
+
+        # Convert chunks to time intervals
+        intervals = []
+        current_pos = 0
+
+        for chunk in chunks:
+            start_time = current_pos  # Convert milliseconds to seconds
+            end_time = (current_pos + len(chunk))
+
+            # Only include intervals longer than 2 seconds
+            #if end_time - start_time >= 2:
+            intervals.append((math.ceil(start_time), math.floor(end_time), chunk.dBFS))
+
+            current_pos = end_time
+
+        return intervals
+
+    except Exception as e:
+        print(f"Error processing file: {str(e)}")
+        return []
+
 # Specify the folder to scan
 folder_to_scan = 'c:\\Photo\\Турция 2023\\'
 video_source_path = 'c:\\Photo\\Турция 2023\\'
 output_path = 'c:\\VideoMontage\\Турция2023\\'
 
 video_name = 'Олюдениз По Морю'
-#video_name = 'Ксантос'
-#video_name = 'test'
+video_name = 'Ксантос'
+video_name = 'test'
 folder_to_scan = os.path.join(video_source_path, video_name)
 output_file_name = os.path.join(output_path, video_name + '.mp4')
 
 result = scan_directory(folder_to_scan)
 sequence = make_into_sequence(result, target_params)
-
 create_video(output_file_name, target_params, sequence)
 
+intervals = apply_sound(output_file_name)
 
 vn = output_file_name.replace("/", "\\")
 os.system(f'"C:\\Program Files\\VideoLAN\\VLC\\vlc.exe" "{vn}"')
