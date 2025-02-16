@@ -22,7 +22,7 @@ target_height = 720
 target_width = 2560
 target_height = 1920
 
-target_params = {'target_width': target_width, 'target_height': target_height, 'target_fps': 2, 'image_duration_sec': 2.5}
+target_params = {'target_width': target_width, 'target_height': target_height, 'target_fps': 25, 'image_duration_sec': 2.5}
 
 sounds = ["FIVE OF A KIND - Density & Time.mp3",
 "Helium - TrackTribe.mp3",
