@@ -6,6 +6,7 @@ from moviepy.editor import *
 import numpy as np
 from PIL import Image
 from moviepy.video.io.VideoFileClip import VideoFileClip
+from moviepy.audio.AudioClip import AudioArrayClip
 from pymediainfo import MediaInfo
 from PIL import Image
 from datetime import datetime, date
@@ -13,19 +14,46 @@ import os
 from pydub import AudioSegment
 from pydub.silence import split_on_silence
 import math
+from pydub import AudioSegment
+from pathlib import Path
 
 target_width = 1280
 target_height = 720
-#target_width = 2560
-#target_height = 1920
+target_width = 2560
+target_height = 1920
 
-target_params = {'target_width': target_width, 'target_height': target_height, 'target_fps': 25, 'image_duration_sec': 2.5}
+target_params = {'target_width': target_width, 'target_height': target_height, 'target_fps': 2, 'image_duration_sec': 2.5}
+
+sounds = ["FIVE OF A KIND - Density & Time.mp3",
+"Helium - TrackTribe.mp3",
+"In Eternity We'll Meet - Aakash Gandhi.mp3",
+"Just Dance - Patrick Patrikios.mp3",
+"LITE BRITE - Density & Time.mp3",
+"Mer-Ka-Ba - Jesse Gallagher.mp3",
+"Rubix Cube - Audionautix.mp3",
+"SPRING OF DECEPTION - Density & Time.mp3",
+"Spring Thaw - Asher Fulero.mp3",
+"The Sea Beneath Our Feet - Puddle of Infinity.mp3",
+"TORSION - Density & Time.mp3"]
+
+"""
+# list music 
+directory = Path('c:/Music/')
+for file in directory.glob('*.mp3'):  # Replace '*.txt' with your pattern
+    print(f'"{file.name}",')
+"""
 
 def get_file_type(filename):
     _, ext = os.path.splitext(filename.lower())
     if ext in ['.jpg', '.jpeg', '.png', '.mp4']:
         return ext[1:]
     return 'other'
+
+
+def get_system_time(path):
+    creation_date = os.path.getctime(path)
+    formatted_date = datetime.fromtimestamp(creation_date).strftime("%Y-%m-%d %H:%M:%S")
+    return formatted_date
 
 def get_image_dimensions(image_path):
     try:
@@ -35,8 +63,8 @@ def get_image_dimensions(image_path):
             width, height = img.size
 
             # Get image creation date
-            creation_date = img._getexif().get(0x9003) if hasattr(img, '_getexif') \
-                else os.path.getctime(image_path)
+            creation_date = img._getexif().get(0x9003) if hasattr(img, '_getexif') and hasattr(img._getexif(), 'get') \
+                else get_system_time(image_path)
 
             # Return all collected information
             return width, height, creation_date
@@ -44,13 +72,6 @@ def get_image_dimensions(image_path):
     except Exception as e:
         print(f"Error processing image {image_path}: {str(e)}")
         return None, None, None
-
-
-# Example usage:
-# dimensions = get_image_dimensions("path/to/your/image.jpg")
-# if dimensions:
-#     print(dimensions)
-
 
 def get_video_info(video_path):
     try:
@@ -172,20 +193,20 @@ def parse_date(dt):
     try:
         # Try to parse as ISO format string
         return datetime.fromisoformat(dt)
-    except ValueError:
+    except:
         pass
 
     for format in ["%Y-%m-%d %H:%M:%S", "%Y:%m:%d %H:%M:%S"]:
         try:
             # Try to parse as standard Python date string format
             return datetime.strptime(dt, format)
-        except ValueError:
+        except:
             pass
 
     try:
         # Try to parse as YYYYMMDD format
         return datetime.strptime(dt, "%Y%m%d")
-    except ValueError:
+    except:
         pass
 
     # If all parsing attempts fail, return None
@@ -213,6 +234,8 @@ def make_into_sequence(file_tree, target_params):
         elif 'date' in fi:
             p['creation_date'] = parse_date(p['date'])
         del p['fi']
+        if 'creation_date' not in p or p['creation_date'] is None:
+            p['creation_date'] = parse_date(get_system_time(p['path']))
         sequence.append(p)
     sequence = sorted(sequence, key=lambda x: x['creation_date'])
     print(sequence)
@@ -240,7 +263,80 @@ def resize_to_fit(w, h, target_width, target_height):
         new_width = new_width2
     return new_height, new_width
 
-def create_video(output_file_name, target_params, sequence):
+
+
+def apply_sound_to_silence(base_video_clip, silences, sound_track, output_file_name, fps):
+    """
+    Applies an audio track to specific silence intervals in a video file.
+
+    Args:
+        video_file (str): Path to the video file
+        silences (list): List of (start, end) tuples representing silence intervals in seconds
+        sound_track (str): Path to the audio file to apply
+
+    Returns:
+        str: Path to the processed video file
+    """
+    # Load audio
+    sound = AudioFileClip(sound_track)
+
+    # Convert video duration to milliseconds for pydub compatibility
+    #video_duration_ms = video.duration * 1000
+
+    # Create silent base audio matching video duration
+    #base_audio = AudioSegment.silent(duration=video_duration_ms)
+
+    audios = []
+    sound_breaks = sorted(set([0.0] + [start for start, end in silences] + [end for start, end in silences] + [base_video_clip.duration]))
+    print_sounds = True
+    for i in range(len(sound_breaks) - 1):
+        start = sound_breaks[i]
+        end = sound_breaks[i + 1]
+        if (start, end) in silences:
+            start_ms = int(start * 1000)
+            end_ms = int(end * 1000)
+
+            # Calculate how many times we need to repeat the sound
+            interval_length = end - start
+            # Calculate how many times we need to repeat the sound
+            repeats_needed = int(np.ceil(interval_length / sound.duration))
+
+            # Create a list of clips to concatenate
+            clips_to_concatenate = [sound] * repeats_needed
+
+            # Concatenate the clips
+            repeated_sound = concatenate_audioclips(clips_to_concatenate)
+
+            # Trim to exact interval length
+            final_sound = repeated_sound.subclip(0, interval_length)
+
+            audios.append(final_sound)
+            if print_sounds:
+                print(f'sound track {start:.2f} {end:.2f}')
+        else:
+            # Extract audio within specified interval
+            audio_clip = base_video_clip.subclip(start, end).audio
+            audios.append(audio_clip)
+            if print_sounds:
+                print(f'sound track {start:.2f} {end:.2f}')
+
+    #final_audio = CompositeAudioClip(audios)
+
+    final_audio = concatenate_audioclips(audios)
+
+    #mp3 = os.path.join(os.path.splitext(output_file_name)[0], ".mp3")
+
+    #final_audio.write_audiofile(mp3, codec="libmp3lame", bitrate="128k", fps=fps)
+
+    # Close the clip to free resources
+    #final_audio.close()
+
+    # Combine video with new audio
+    final_video = base_video_clip.set_audio(final_audio)
+    return final_video
+
+
+def create_video(output_file_name, target_params, sequence, sound_track):
     # Extract target parameters
     target_width = target_params['target_width']
     target_height = target_params['target_height']
@@ -281,6 +377,7 @@ def create_video(output_file_name, target_params, sequence):
     final_clip = mp.concatenate_videoclips(clips, method="compose")
 
     # Write the video
+    final_clip = apply_sound_to_silence(final_clip, silences, sound_track, output_file_name, target_fps)
     final_clip.write_videofile(output_file_name, fps=target_fps, codec='libx264')
 
     print(f"Video '{output_file_name}' has been created successfully.")
@@ -290,7 +387,6 @@ def resize_rgb_image(img, new_width, new_height, rotation=0):
     img = cv2.resize(img, (new_width, new_height))
     #img = rotate(img, rotation)
     return img
-
 
 def rotate(img, rotation):
     if rotation == 90:
@@ -346,6 +442,18 @@ def add_video_to_video(clips, video_path, item, target_fps, target_height, targe
     # Load the existing video file
     resized_clip = VideoFileClip(video_path)#.fx(vfx.resize, height=new_height)
 
+    """    
+    text_clip = TextClip(
+        video_path,
+        fontsize=30,  # Adjust size as needed
+        color='white',
+        bg_color='black'  # Optional background for better visibility
+    ).set_position(('right', 'bottom')).set_duration(resized_clip.duration)
+
+    # Combine video and text
+    resized_clip = CompositeVideoClip([resized_clip, text_clip])
+    """
+
     # Check if video is longer than l seconds and trim if necessary
     l = 20000000000
     if resized_clip.duration > l:
@@ -373,31 +481,30 @@ def add_video_to_video(clips, video_path, item, target_fps, target_height, targe
     clips.append(resized_clip)
 
     print(video_path)
-    pass
 
 def add_image_to_video(clips, image_path, item, target_fps, target_height, target_width):
     # Open the image
     with Image.open(image_path) as img:
         # Convert image to RGB mode
         img = img.convert('RGB')
-        w = img.width
-        h = img.height
 
-        new_height, new_width = resize_to_fit(w, h, target_width, target_height)
-
-        print(f"resized ({w}, {h}) --> ({new_width}, {new_height})")
-        # Resize the image
-        resized_img = np.array(img.resize((new_width, new_height)).copy())
-
-        # Expand the resized image to target size with black margin
-        expanded_img = expand_image(resized_img, target_height, target_width)
-
-        # Repeat the image for the specified number of frames
-        #for _ in range(item['repeat']):
-        #    resized_images.append(expanded_img)
+        # Apply custom function to each frame
+        if item['rotation'] in (0, 180):
+            w = img.width
+            h = img.height
+            new_height, new_width = resize_to_fit(w, h, target_width, target_height)
+            resized_img = np.array(img.resize((new_width, new_height)).copy())
+            expanded_img = expand_image(resized_img, target_height, target_width)
+            print(f"resized ({w}, {h}) --> ({new_width}, {new_height}) -- {item['rotation']}")
+        else:
+            h = img.width
+            w = img.height
+            new_height, new_width = resize_to_fit(w, h, target_width, target_height)
+            resized_img = np.array(img.resize((new_height, new_width)).copy())
+            print(f"resized ({h}, {w}) --> ({new_height}, {new_width}) -- {item['rotation']}")
+            expanded_img = expand_image(resized_img, target_width, target_height)
 
         clips.append(mp.ImageSequenceClip([expanded_img for _ in range(item['repeat'])], fps=target_fps))
-
 
 def expand_image(img, target_height, target_width):
     new_height = img.shape[0]
@@ -407,9 +514,6 @@ def expand_image(img, target_height, target_width):
     dw = (target_width - new_width) // 2
     expanded_img[dh:new_height + dh, dw:new_width + dw] = img[:new_height, :new_width]
     return expanded_img
-
-
-
 
 def apply_sound(output_file_name):
     """
@@ -421,6 +525,9 @@ def apply_sound(output_file_name):
     Returns:
         list: List of tuples containing (start_time, end_time) for each silent interval
     """
+
+    # audio = AudioFileClip(data[i]["file"])
+
     try:
         # Extract audio from video file
         sound = AudioSegment.from_file(output_file_name)
@@ -453,6 +560,7 @@ def apply_sound(output_file_name):
         print(f"Error processing file: {str(e)}")
         return []
 
+sounds = ['c:\\Music\\' + s for s in sounds]
 # Specify the folder to scan
 folder_to_scan = 'c:\\Photo\\Турция 2023\\'
 video_source_path = 'c:\\Photo\\Турция 2023\\'
@@ -460,31 +568,30 @@ output_path = 'c:\\VideoMontage\\Турция2023\\'
 
 video_name = 'Олюдениз По Морю'
 video_name = 'Ксантос'
+video_name = 'Бабадаг Подьем и Спуск'
 video_name = 'test'
 folder_to_scan = os.path.join(video_source_path, video_name)
 output_file_name = os.path.join(output_path, video_name + '.mp4')
 
 result = scan_directory(folder_to_scan)
 sequence = make_into_sequence(result, target_params)
-create_video(output_file_name, target_params, sequence)
 
-intervals = apply_sound(output_file_name)
+#create_video(output_file_name, target_params, sequence, sounds[0])
+#vn = output_file_name.replace("/", "\\")
+#os.system(f'"C:\\Program Files\\VideoLAN\\VLC\\vlc.exe" "{vn}"')
 
-vn = output_file_name.replace("/", "\\")
-os.system(f'"C:\\Program Files\\VideoLAN\\VLC\\vlc.exe" "{vn}"')
-
-"""
 result = scan_directory(video_source_path)
-for dir in result['dirs']:
+for i, dir in enumerate(result['dirs']):
     print(dir)
     video_name = dir
     folder_to_scan = os.path.join(video_source_path, video_name)
     output_file_name = os.path.join(output_path, video_name + '.mp4')
     result = scan_directory(folder_to_scan)
-    target_params = {'target_width': 1280, 'target_height': 720, 'target_fps': 25, 'image_duration_sec': 3.5}
+    #target_params = {'target_width': 1280, 'target_height': 720, 'target_fps': 25, 'image_duration_sec': 3.5}
     sequence = make_into_sequence(result, target_params)
+    sound_index = i % len(sounds)
     try:
-        create_video(output_file_name, target_params, sequence)
+        create_video(output_file_name, target_params, sequence, sounds[sound_index])
     except Exception as e:
         print(e)
         continue
@@ -492,4 +599,3 @@ for dir in result['dirs']:
 #print(json.dumps(result, indent=2))
 #print(json.dumps(sequence, indent=2))
 
-"""
