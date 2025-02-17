@@ -565,16 +565,18 @@ sounds = ['c:\\Music\\' + s for s in sounds]
 folder_to_scan = 'c:\\Photo\\Турция 2023\\'
 video_source_path = 'c:\\Photo\\Турция 2023\\'
 output_path = 'c:\\VideoMontage\\Турция2023\\'
+video_source_path = 'c:\\Photo\\Турция2024\\'
+output_path = 'c:\\VideoMontage\\Турция2024\\'
 
 video_name = 'Олюдениз По Морю'
 video_name = 'Ксантос'
 video_name = 'Бабадаг Подьем и Спуск'
 video_name = 'test'
-folder_to_scan = os.path.join(video_source_path, video_name)
-output_file_name = os.path.join(output_path, video_name + '.mp4')
+#folder_to_scan = os.path.join(video_source_path, video_name)
+#output_file_name = os.path.join(output_path, video_name + '.mp4')
 
-result = scan_directory(folder_to_scan)
-sequence = make_into_sequence(result, target_params)
+#result = scan_directory(folder_to_scan)
+#sequence = make_into_sequence(result, target_params)
 
 #create_video(output_file_name, target_params, sequence, sounds[0])
 #vn = output_file_name.replace("/", "\\")
@@ -582,15 +584,16 @@ sequence = make_into_sequence(result, target_params)
 
 result = scan_directory(video_source_path)
 for i, dir in enumerate(result['dirs']):
-    print(dir)
-    video_name = dir
-    folder_to_scan = os.path.join(video_source_path, video_name)
-    output_file_name = os.path.join(output_path, video_name + '.mp4')
-    result = scan_directory(folder_to_scan)
-    #target_params = {'target_width': 1280, 'target_height': 720, 'target_fps': 25, 'image_duration_sec': 3.5}
-    sequence = make_into_sequence(result, target_params)
-    sound_index = i % len(sounds)
     try:
+        print(dir)
+        video_name = dir
+        folder_to_scan = os.path.join(video_source_path, video_name)
+        output_file_name = os.path.join(output_path, video_name + '.mp4')
+        result = scan_directory(folder_to_scan)
+        sequence = make_into_sequence(result, target_params)
+        if len(sequence) == 0:
+            continue
+        sound_index = i % len(sounds)
         create_video(output_file_name, target_params, sequence, sounds[sound_index])
     except Exception as e:
         print(e)
