@@ -45,7 +45,7 @@ for file in directory.glob('*.mp3'):  # Replace '*.txt' with your pattern
 
 def get_file_type(filename):
     _, ext = os.path.splitext(filename.lower())
-    if ext in ['.jpg', '.jpeg', '.png', '.mp4']:
+    if ext in ['.jpg', '.jpeg', '.png', '.mp4', '.wmv']:
         return ext[1:]
     return 'other'
 
@@ -565,8 +565,10 @@ sounds = ['c:\\Music\\' + s for s in sounds]
 folder_to_scan = 'c:\\Photo\\Турция 2023\\'
 video_source_path = 'c:\\Photo\\Турция 2023\\'
 output_path = 'c:\\VideoMontage\\Турция2023\\'
-video_source_path = 'c:\\Photo\\Турция2024\\'
+video_source_path = 'c:\\Photo\\Турция2024_\\'
 output_path = 'c:\\VideoMontage\\Турция2024\\'
+video_source_path = 'C:/VideoMontage/IT Videos'
+output_path = 'C:/VideoMontage/IT Videos Out'
 
 video_name = 'Олюдениз По Морю'
 video_name = 'Ксантос'
